@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom D&D Map</title>
+    <style>
+        :root {
+            --grid-size: 50px;
+        }
+
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #1e1e2e;
+            color: #cdd6f4;
+        }
+
+        /* Sidebar Controls */
+        #controls {
+            width: 320px;
+            padding: 20px;
+            background-color: #313244;
+            border-right: 2px solid #11111b;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            z-index: 20000; /* Keep sidebar above everything */
+            box-sizing: border-box;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #45475a;
+        }
+
+        .control-group h3 {
+            margin: 0 0 5px 0;
+            font-size: 1.1em;
+            color: #89b4fa;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .row input[type="number"] {
+            width: 60px;
+        }
+
+        label {
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        input, select, button {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #585b70;
+            background-color: #181825;
+            color: #cdd6f4;
+            font-family: inherit;
+        }
+
+        button {
+            background-color: #89b4fa;
+            color: #11111b;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #b4befe;
+        }
+
+        .instructions {
+            background: #181825;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            line-height: 1.5;
+            border: 1px dashed #585b70;
+        }
+        
+        .instructions ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        /* Map Area */
+        #workspace {
+            flex-grow: 1;
+            overflow: hidden;
+            position: relative;
+            cursor: grab;
+        }
+
+        #workspace:active {
+            cursor: grabbing;
+        }
+
+        #map-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+        }
+
+        #map-image {
+            display: block;
+            user-select: none;
+        }
+
+        #grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background-size: var(--grid-size) var(--grid-size);
+            background-position: 0px 0px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.4) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.4) 1px, transparent 1px);
+            display: none;
+        }
+
+        #token-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* Elements (Tokens & Fog) */
+        .board-element {
+            position: absolute;
+            cursor: grab;
+            user-select: none;
+            pointer-events: auto;
+            box-sizing: border-box;
+        }
+
+        .board-element:active {
+            cursor: grabbing;
+        }
+
+        /* Tokens */
+        .token {
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 3px solid #11111b;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            color: white;
+            text-shadow: 1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black;
+        }
+
+        .token-initial {
+            font-weight: bold;
+            font-size: 1.5em;
+            line-height: 1;
+        }
+
+        .token-hp {
+            font-size: 0.8em;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-top: 2px;
+            text-shadow: none;
+        }
+
+        /* Fog of War */
+        .fog-of-war {
+            background-color: #000000;
+            /* Optional: Add a slight texture or border to fog if desired */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="map-upload">Load Map Image</label>
+            <input type="file" id="map-upload" accept="image/*">
+        </div>
+
+        <div class="control-group">
+            <label for="grid-toggle">
+                <input type="checkbox" id="grid-toggle"> Show Grid
+            </label>
+            <label for="grid-size">Grid Size (px)</label>
+            <input type="number" id="grid-size" value="50" min="10" max="200">
+            
+            <label>Grid Offset (X / Y px)</label>
+            <div class="row">
+                <input type="number" id="grid-offset-x" value="0">
+                <input type="number" id="grid-offset-y" value="0">
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>Create Token</h3>
+            <label for="token-initial">Initial / Name</label>
+            <input type="text" id="token-initial" value="M" maxlength="3">
+
+            <label for="token-hp">HP</label>
+            <input type="number" id="token-hp" value="50">
+
+            <label for="token-size">Size (Squares)</label>
+            <select id="token-size">
+                <option value="1">1x1 (Medium/Small)</option>
+                <option value="2">2x2 (Large)</option>
+                <option value="3">3x3 (Huge)</option>
+                <option value="4">4x4 (Gargantuan)</option>
+            </select>
+
+            <label for="token-color">Color</label>
+            <input type="color" id="token-color" value="#f38ba8">
+
+            <button id="btn-generate-token">Generate Token</button>
+        </div>
+
+        <div class="control-group">
+            <h3>Fog of War</h3>
+            <label>Size (Width / Height in Squares)</label>
+            <div class="row">
+                <input type="number" id="fog-width" value="3" min="1">
+                <input type="number" id="fog-height" value="3" min="1">
+            </div>
+            
+            <label for="fog-color">Fog Color</label>
+            <input type="color" id="fog-color" value="#11111b">
+
+            <button id="btn-generate-fog">Add Fog of War</button>
+        </div>
+
+        <div class="instructions">
+            <ul>
+                <li><strong>Drag</strong> tokens/fog to move them.</li>
+                <li><strong>Right-Click</strong> an item to delete it.</li>
+                <li><strong>Double-Click</strong> a token to edit HP.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="workspace">
+        <div id="map-wrapper">
+            <img id="map-image" src="" alt="" draggable="false">
+            <div id="grid-overlay"></div>
+            <div id="token-layer"></div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const workspace = document.getElementById('workspace');
+        const mapWrapper = document.getElementById('map-wrapper');
+        const mapUpload = document.getElementById('map-upload');
+        const mapImage = document.getElementById('map-image');
+        const gridOverlay = document.getElementById('grid-overlay');
+        const gridToggle = document.getElementById('grid-toggle');
+        const gridSizeInput = document.getElementById('grid-size');
+        const gridOffsetXInput = document.getElementById('grid-offset-x');
+        const gridOffsetYInput = document.getElementById('grid-offset-y');
+        const tokenLayer = document.getElementById('token-layer');
+        const btnGenerateToken = document.getElementById('btn-generate-token');
+        const btnGenerateFog = document.getElementById('btn-generate-fog');
+
+        // Separate Z-Index pools to guarantee Fog is ALWAYS above Tokens
+        let currentTokenZIndex = 100;
+        let currentFogZIndex = 10000; 
+
+        // Pan and Zoom Variables
+        let scale = 1;
+        let panX = 0;
+        let panY = 0;
+        let isPanning = false;
+        let startPanX = 0;
+        let startPanY = 0;
+
+        // --- Map & Viewport Logic ---
+        mapUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    mapImage.src = event.target.result;
+                    scale = 1; panX = 0; panY = 0;
+                    updateTransform();
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function updateTransform() {
+            mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        }
+
+        workspace.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#controls') || e.target.closest('.board-element')) return;
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => {
+            isPanning = false;
+        });
+
+        workspace.addEventListener('wheel', (e) => {
+            if (e.target.closest('#controls')) return;
+            e.preventDefault();
+
+            const zoomSensitivity = 0.001;
+            const delta = -e.deltaY * zoomSensitivity;
+            const newScale = Math.min(Math.max(0.1, scale * Math.exp(delta)), 5);
+
+            const rect = workspace.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            panX = mouseX - (mouseX - panX) * (newScale / scale);
+            panY = mouseY - (mouseY - panY) * (newScale / scale);
+            
+            scale = newScale;
+            updateTransform();
+        }, { passive: false });
+
+        // --- Grid Logic ---
+        gridToggle.addEventListener('change', function() {
+            gridOverlay.style.display = this.checked ? 'block' : 'none';
+        });
+
+        gridSizeInput.addEventListener('input', function() {
+            document.documentElement.style.setProperty('--grid-size', this.value + 'px');
+            updateElementSizes();
+        });
+
+        function updateGridOffset() {
+            const x = gridOffsetXInput.value || 0;
+            const y = gridOffsetYInput.value || 0;
+            gridOverlay.style.backgroundPosition = `${x}px ${y}px`;
+        }
+
+        gridOffsetXInput.addEventListener('input', updateGridOffset);
+        gridOffsetYInput.addEventListener('input', updateGridOffset);
+
+        // --- Creation Logic ---
+        btnGenerateToken.addEventListener('click', createToken);
+        btnGenerateFog.addEventListener('click', createFog);
+
+        // Helper to place new items in center of screen
+        function getCenterSpawnPos() {
+            return {
+                x: (workspace.clientWidth / 2 - panX) / scale,
+                y: (workspace.clientHeight / 2 - panY) / scale
+            };
+        }
+
+        function createToken() {
+            const initial = document.getElementById('token-initial').value;
+            const hp = document.getElementById('token-hp').value;
+            const sizeMultiplier = document.getElementById('token-size').value;
+            const color = document.getElementById('token-color').value;
+
+            const token = document.createElement('div');
+            token.className = 'board-element token';
+            token.style.backgroundColor = color;
+            token.dataset.type = 'token';
+            token.dataset.sizeScale = sizeMultiplier;
+            token.dataset.hp = hp; // Store raw hp
+            
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size'));
+            const pixelSize = currentGridSize * sizeMultiplier;
+            token.style.width = pixelSize + 'px';
+            token.style.height = pixelSize + 'px';
+            
+            const pos = getCenterSpawnPos();
+            token.style.left = pos.x + 'px';
+            token.style.top = pos.y + 'px';
+            token.style.zIndex = currentTokenZIndex++;
+
+            const hpDisplay = hp == 0 ? 'none' : 'block';
+
+            token.innerHTML = `
+                <span class="token-initial">${initial}</span>
+                <span class="token-hp" style="display: ${hpDisplay}">${hp} HP</span>
+            `;
+
+            makeDraggableAndInteractive(token);
+            tokenLayer.appendChild(token);
+        }
+
+        function createFog() {
+            const wSquares = document.getElementById('fog-width').value;
+            const hSquares = document.getElementById('fog-height').value;
+            const color = document.getElementById('fog-color').value;
+
+            const fog = document.createElement('div');
+            fog.className = 'board-element fog-of-war';
+            fog.style.backgroundColor = color;
+            fog.dataset.type = 'fog';
+            fog.dataset.wSquares = wSquares;
+            fog.dataset.hSquares = hSquares;
+
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size'));
+            fog.style.width = (currentGridSize * wSquares) + 'px';
+            fog.style.height = (currentGridSize * hSquares) + 'px';
+
+            const pos = getCenterSpawnPos();
+            fog.style.left = pos.x + 'px';
+            fog.style.top = pos.y + 'px';
+            fog.style.zIndex = currentFogZIndex++; // Fog naturally spawns in the 10,000+ z-index tier
+
+            makeDraggableAndInteractive(fog);
+            tokenLayer.appendChild(fog);
+        }
+
+        function updateElementSizes() {
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size'));
+            
+            // Resize Tokens
+            const tokens = document.querySelectorAll('.token');
+            tokens.forEach(token => {
+                const sizeScale = parseInt(token.dataset.sizeScale);
+                const newPixelSize = currentGridSize * sizeScale;
+                token.style.width = newPixelSize + 'px';
+                token.style.height = newPixelSize + 'px';
+            });
+
+            // Resize Fog
+            const fogs = document.querySelectorAll('.fog-of-war');
+            fogs.forEach(fog => {
+                const wScale = parseInt(fog.dataset.wSquares);
+                const hScale = parseInt(fog.dataset.hSquares);
+                fog.style.width = (currentGridSize * wScale) + 'px';
+                fog.style.height = (currentGridSize * hScale) + 'px';
+            });
+        }
+
+        // --- Interaction Logic (Drag, Delete, Edit) ---
+        function makeDraggableAndInteractive(element) {
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            // 1. Dragging
+            element.addEventListener('mousedown', dragStart);
+
+            // 2. Right-Click Delete
+            element.addEventListener('contextmenu', (e) => {
+                e.preventDefault(); // Stop normal browser right-click menu
+                element.remove();
+            });
+
+            // 3. Double-Click Edit (Tokens only)
+            if (element.dataset.type === 'token') {
+                element.addEventListener('dblclick', (e) => {
+                    e.stopPropagation(); // Prevents misfires
+                    let currentHp = element.dataset.hp;
+                    let newHp = prompt("Enter new HP (0 to hide):", currentHp);
+                    
+                    if (newHp !== null && !isNaN(newHp) && newHp.trim() !== '') {
+                        element.dataset.hp = newHp;
+                        let hpSpan = element.querySelector('.token-hp');
+                        hpSpan.textContent = `${newHp} HP`;
+                        hpSpan.style.display = newHp == 0 ? 'none' : 'block';
+                    }
+                });
+            }
+
+            function dragStart(e) {
+                if (e.button !== 0) return; // Only trigger drag on left click
+                e.stopPropagation(); 
+
+                isDragging = true;
+                
+                // Bring element to the top of its specific layer pool
+                if (element.dataset.type === 'fog') {
+                    element.style.zIndex = currentFogZIndex++;
+                } else {
+                    element.style.zIndex = currentTokenZIndex++;
+                }
+                
+                startX = e.clientX;
+                startY = e.clientY;
+                initialLeft = element.offsetLeft;
+                initialTop = element.offsetTop;
+
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('mouseup', dragEnd);
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+
+                const dx = (e.clientX - startX) / scale;
+                const dy = (e.clientY - startY) / scale;
+
+                element.style.left = (initialLeft + dx) + 'px';
+                element.style.top = (initialTop + dy) + 'px';
+            }
+
+            function dragEnd() {
+                isDragging = false;
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('mouseup', dragEnd);
+            }
+        }
+    </script>
+</body>
+</html>
