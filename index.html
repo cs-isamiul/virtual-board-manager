@@ -83,6 +83,22 @@
         button:hover {
             background-color: #b4befe;
         }
+
+        .file-upload-btn {
+            display: block;
+            padding: 10px;
+            background-color: #cba6f7;
+            color: #11111b;
+            text-align: center;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            border: 1px solid #585b70;
+        }
+        .file-upload-btn:hover {
+            background-color: #b4befe;
+        }
         
         .btn-project {
             background-color: #a6e3a1;
@@ -229,7 +245,7 @@
         .token.highlight-active {
             box-shadow: 0 0 20px 8px rgba(249, 226, 175, 0.8) !important;
             border-color: #f9e2af !important;
-            z-index: 19000 !important; /* Pop to front when hovering timeline */
+            z-index: 19000 !important;
         }
 
         .token-initial {
@@ -275,8 +291,8 @@
         </div>
 
         <div class="control-group">
-            <label for="map-upload">Load Map Image</label>
-            <input type="file" id="map-upload" accept="image/*">
+            <label for="map-upload" class="file-upload-btn">📁 Choose Map Image</label>
+            <input type="file" id="map-upload" accept="image/*" style="display: none;">
         </div>
 
         <div class="control-group">
@@ -476,3 +492,377 @@
                 }
 
                 workspace.addEventListener('mousedown', (e) => {
+                    isPanning = true;
+                    startPanX = e.clientX - panX;
+                    startPanY = e.clientY - panY;
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if (!isPanning) return;
+                    panX = e.clientX - startPanX;
+                    panY = e.clientY - startPanY;
+                    updateTransform();
+                });
+
+                window.addEventListener('mouseup', () => { isPanning = false; });
+
+                workspace.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const zoomSensitivity = 0.001;
+                    const delta = -e.deltaY * zoomSensitivity;
+                    const newScale = Math.min(Math.max(0.1, scale * Math.exp(delta)), 5);
+
+                    const rect = workspace.getBoundingClientRect();
+                    const mouseX = e.clientX - rect.left;
+                    const mouseY = e.clientY - rect.top;
+
+                    panX = mouseX - (mouseX - panX) * (newScale / scale);
+                    panY = mouseY - (mouseY - panY) * (newScale / scale);
+                    
+                    scale = newScale;
+                    updateTransform();
+                }, { passive: false });
+            `;
+
+            // Fix empty string image source bug
+            const currentMapSrc = mapImage.getAttribute('src') ? mapImage.src : '';
+
+            const styles = document.getElementById('main-styles').innerHTML;
+            const playerHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Player Screen</title>
+                    <style>
+                        ${styles}
+                        body { background-color: #11111b; }
+                        #controls { display: none !important; }
+                        #timeline { display: none !important; } 
+                        #workspace { width: 100vw; height: 100vh; cursor: grab !important; }
+                        #workspace:active { cursor: grabbing !important; }
+                        
+                        .dm-only { display: none !important; } 
+                        .hp-dm-only { display: none !important; }
+                    </style>
+                </head>
+                <body>
+                    <div id="workspace">
+                        <div id="map-wrapper">
+                            <img id="map-image" src="${currentMapSrc}" style="${mapImage.style.cssText}" draggable="false">
+                            <div id="grid-overlay" style="${gridOverlay.style.cssText}"></div>
+                            <div id="token-layer">${tokenLayer.innerHTML}</div>
+                        </div>
+                    </div>
+                    <script>${playerScript}<\/script>
+                </body>
+                </html>
+            `;
+
+            playerWindow.document.open();
+            playerWindow.document.write(playerHTML);
+            playerWindow.document.close();
+
+            playerWindow.document.documentElement.style.setProperty(
+                '--grid-size', 
+                document.documentElement.style.getPropertyValue('--grid-size') || '50px'
+            );
+
+            playerStatus.textContent = "Live & Connected";
+            playerStatus.style.color = "#a6e3a1";
+
+            playerWindow.addEventListener('beforeunload', () => {
+                playerStatus.textContent = "Not Connected";
+                playerStatus.style.color = "#f38ba8";
+                playerWindow = null;
+            });
+        });
+
+        function syncToPlayer() {
+            if (playerWindow && !playerWindow.closed) {
+                const pDoc = playerWindow.document;
+                
+                pDoc.documentElement.style.setProperty('--grid-size', document.documentElement.style.getPropertyValue('--grid-size') || '50px');
+
+                const pGridOverlay = pDoc.getElementById('grid-overlay');
+                if (pGridOverlay) pGridOverlay.style.cssText = gridOverlay.style.cssText;
+
+                const pTokenLayer = pDoc.getElementById('token-layer');
+                if (pTokenLayer) {
+                    pTokenLayer.innerHTML = tokenLayer.innerHTML;
+                }
+            }
+        }
+
+        // ==========================================
+        // MAP & VIEWPORT (DM Side)
+        // ==========================================
+        mapUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const objectUrl = URL.createObjectURL(file);
+                
+                mapImage.src = objectUrl;
+                scale = 1; panX = 0; panY = 0;
+                updateTransform();
+                
+                if (playerWindow && !playerWindow.closed) {
+                    const pMap = playerWindow.document.getElementById('map-image');
+                    if (pMap) pMap.src = objectUrl;
+                }
+            }
+            
+            // Reset input so the user can re-upload the same image if needed
+            this.value = '';
+        });
+
+        function updateTransform() {
+            mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+        }
+
+        workspace.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#controls') || e.target.closest('#timeline') || e.target.closest('.board-element')) return;
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => { isPanning = false; });
+
+        workspace.addEventListener('wheel', (e) => {
+            if (e.target.closest('#controls') || e.target.closest('#timeline')) return;
+            e.preventDefault();
+
+            const zoomSensitivity = 0.001;
+            const delta = -e.deltaY * zoomSensitivity;
+            const newScale = Math.min(Math.max(0.1, scale * Math.exp(delta)), 5);
+
+            const rect = workspace.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            panX = mouseX - (mouseX - panX) * (newScale / scale);
+            panY = mouseY - (mouseY - panY) * (newScale / scale);
+            
+            scale = newScale;
+            updateTransform();
+        }, { passive: false });
+
+        // ==========================================
+        // GRID
+        // ==========================================
+        gridToggle.addEventListener('change', function() {
+            gridOverlay.style.display = this.checked ? 'block' : 'none';
+            syncToPlayer();
+        });
+
+        gridSizeInput.addEventListener('input', function() {
+            document.documentElement.style.setProperty('--grid-size', this.value + 'px');
+            updateElementSizes();
+            syncToPlayer();
+        });
+
+        function updateGridOffset() {
+            const x = gridOffsetXInput.value || 0;
+            const y = gridOffsetYInput.value || 0;
+            gridOverlay.style.backgroundPosition = `${x}px ${y}px`;
+            syncToPlayer();
+        }
+
+        gridOffsetXInput.addEventListener('input', updateGridOffset);
+        gridOffsetYInput.addEventListener('input', updateGridOffset);
+
+        // ==========================================
+        // CREATION LOGIC
+        // ==========================================
+        btnGenerateToken.addEventListener('click', createToken);
+        btnGenerateRect.addEventListener('click', createRect);
+
+        function getCenterSpawnPos() {
+            return {
+                x: (workspace.clientWidth / 2 - panX) / scale,
+                y: ((workspace.clientHeight / 2 + 30) - panY) / scale
+            };
+        }
+
+        function createToken() {
+            const initial = document.getElementById('token-initial').value;
+            const hp = document.getElementById('token-hp').value;
+            const sizeMultiplier = document.getElementById('token-size').value;
+            const color = document.getElementById('token-color').value;
+            const isDmOnly = document.getElementById('token-dm-only').checked;
+            const isHpDmOnly = document.getElementById('token-hp-dm-only').checked;
+
+            const token = document.createElement('div');
+            token.id = 'token-' + Math.random().toString(36).substring(2, 9);
+            token.className = 'board-element token';
+            if (isDmOnly) token.classList.add('dm-only');
+            
+            token.style.backgroundColor = color;
+            token.dataset.type = 'token';
+            token.dataset.sizeScale = sizeMultiplier;
+            token.dataset.hp = hp; 
+            
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
+            token.style.width = (currentGridSize * sizeMultiplier) + 'px';
+            token.style.height = (currentGridSize * sizeMultiplier) + 'px';
+            
+            const pos = getCenterSpawnPos();
+            token.style.left = pos.x + 'px';
+            token.style.top = pos.y + 'px';
+            token.style.zIndex = currentTokenZIndex++;
+
+            const hpDisplay = hp == 0 ? 'none' : 'block';
+            const hpClass = isHpDmOnly ? 'token-hp hp-dm-only' : 'token-hp';
+
+            token.innerHTML = `
+                <span class="token-initial">${initial}</span>
+                <span class="${hpClass}" style="display: ${hpDisplay}">${hp} HP</span>
+            `;
+
+            makeDraggableAndInteractive(token);
+            tokenLayer.appendChild(token);
+            syncToPlayer();
+        }
+
+        function createRect() {
+            const wSquares = document.getElementById('rect-width').value;
+            const hSquares = document.getElementById('rect-height').value;
+            const color = document.getElementById('rect-color').value;
+            const opacity = document.getElementById('rect-opacity').value;
+
+            const rect = document.createElement('div');
+            rect.className = 'board-element utility-rect';
+            rect.style.backgroundColor = color;
+            rect.style.opacity = opacity;
+            rect.dataset.type = 'rect';
+            rect.dataset.wSquares = wSquares;
+            rect.dataset.hSquares = hSquares;
+
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
+            rect.style.width = (currentGridSize * wSquares) + 'px';
+            rect.style.height = (currentGridSize * hSquares) + 'px';
+
+            const pos = getCenterSpawnPos();
+            rect.style.left = pos.x + 'px';
+            rect.style.top = pos.y + 'px';
+            rect.style.zIndex = currentRectZIndex++; 
+
+            makeDraggableAndInteractive(rect);
+            tokenLayer.appendChild(rect);
+            syncToPlayer();
+        }
+
+        function updateElementSizes() {
+            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
+            
+            document.querySelectorAll('.token').forEach(token => {
+                const sizeScale = parseInt(token.dataset.sizeScale);
+                token.style.width = (currentGridSize * sizeScale) + 'px';
+                token.style.height = (currentGridSize * sizeScale) + 'px';
+            });
+
+            document.querySelectorAll('.utility-rect').forEach(rect => {
+                const wScale = parseInt(rect.dataset.wSquares);
+                const hScale = parseInt(rect.dataset.hSquares);
+                rect.style.width = (currentGridSize * wScale) + 'px';
+                rect.style.height = (currentGridSize * hScale) + 'px';
+            });
+        }
+
+        // ==========================================
+        // INTERACTION (DRAG, DELETE, EDIT)
+        // ==========================================
+        function makeDraggableAndInteractive(element) {
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            element.addEventListener('mousedown', dragStart);
+
+            element.addEventListener('contextmenu', (e) => {
+                e.preventDefault(); 
+                
+                if (e.ctrlKey && element.dataset.type === 'token') {
+                    addToTimeline(element);
+                } else {
+                    element.remove();
+                    if (element.id) {
+                        removeFromTimeline(element.id);
+                    }
+                    syncToPlayer();
+                }
+            });
+
+            if (element.dataset.type === 'token') {
+                element.addEventListener('dblclick', (e) => {
+                    e.stopPropagation(); 
+                    let currentHp = element.dataset.hp;
+                    let newHp = prompt("Enter new HP (0 to hide):", currentHp);
+                    
+                    if (newHp !== null && !isNaN(newHp) && newHp.trim() !== '') {
+                        element.dataset.hp = newHp;
+                        let hpSpan = element.querySelector('.token-hp');
+                        hpSpan.textContent = `${newHp} HP`;
+                        hpSpan.style.display = newHp == 0 ? 'none' : 'block';
+                        syncToPlayer();
+                    }
+                });
+            }
+
+            function dragStart(e) {
+                if (e.button !== 0) return; 
+                e.stopPropagation(); 
+
+                if (e.shiftKey) {
+                    if (element.dataset.type === 'token') {
+                        element.classList.toggle('dm-only');
+                        syncToPlayer();
+                    }
+                    return; 
+                }
+
+                isDragging = true;
+                
+                if (element.dataset.type === 'rect') {
+                    element.style.zIndex = currentRectZIndex++;
+                } else {
+                    element.style.zIndex = currentTokenZIndex++;
+                }
+                
+                startX = e.clientX;
+                startY = e.clientY;
+                initialLeft = element.offsetLeft;
+                initialTop = element.offsetTop;
+
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('mouseup', dragEnd);
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+                e.preventDefault();
+
+                const dx = (e.clientX - startX) / scale;
+                const dy = (e.clientY - startY) / scale;
+
+                element.style.left = (initialLeft + dx) + 'px';
+                element.style.top = (initialTop + dy) + 'px';
+                
+                syncToPlayer(); 
+            }
+
+            function dragEnd() {
+                isDragging = false;
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('mouseup', dragEnd);
+            }
+        }
+    </script>
+</body>
+</html>
