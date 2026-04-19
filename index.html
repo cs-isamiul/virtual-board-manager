@@ -199,7 +199,7 @@
             pointer-events: none;
         }
 
-        /* Elements (Tokens & Fog) */
+        /* Elements (Tokens & Rects) */
         .board-element {
             position: absolute;
             cursor: grab;
@@ -259,10 +259,9 @@
             background: rgba(243, 139, 168, 0.3);
         }
 
-        /* Fog of War */
-        .fog-of-war {
-            background-color: #000000;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.8);
+        /* Utility Rectangles */
+        .utility-rect {
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
     </style>
 </head>
@@ -325,19 +324,26 @@
         </div>
 
         <div class="control-group">
-            <h3>Fog of War</h3>
+            <h3>Utility Rectangles</h3>
             <label>Size (Width / Height in Squares)</label>
             <div class="row">
-                <input type="number" id="fog-width" value="3" min="1">
-                <input type="number" id="fog-height" value="3" min="1">
+                <input type="number" id="rect-width" value="3" min="1">
+                <input type="number" id="rect-height" value="3" min="1">
             </div>
-            <button id="btn-generate-fog">Add Fog of War</button>
+            
+            <label for="rect-color">Color</label>
+            <input type="color" id="rect-color" value="#000000">
+            
+            <label for="rect-opacity">Opacity</label>
+            <input type="range" id="rect-opacity" min="0.1" max="1.0" step="0.1" value="1.0">
+
+            <button id="btn-generate-rect">Add Utility Rectangle</button>
         </div>
 
         <div class="instructions">
             <ul>
-                <li><strong>Drag</strong> tokens/fog to move them.</li>
-                <li><strong>Right-Click</strong> an item to delete it.</li>
+                <li><strong>Drag</strong> elements to move them.</li>
+                <li><strong>Right-Click</strong> an element to delete it.</li>
                 <li><strong>Double-Click</strong> a token to edit HP.</li>
                 <li><strong>Shift + Click</strong> a token to toggle "DM Only" visibility.</li>
                 <li><strong>Ctrl + Right-Click</strong> a token to add it to the Timeline.</li>
@@ -347,7 +353,7 @@
 
     <div id="workspace">
         <div id="timeline">
-            <span id="timeline-placeholder">Shift + Right-Click a token to add to initiative</span>
+            <span id="timeline-placeholder">Ctrl + Right-Click a token to add to initiative</span>
         </div>
         <div id="map-wrapper">
             <img id="map-image" src="" alt="" draggable="false">
@@ -369,7 +375,7 @@
         const gridOffsetYInput = document.getElementById('grid-offset-y');
         const tokenLayer = document.getElementById('token-layer');
         const btnGenerateToken = document.getElementById('btn-generate-token');
-        const btnGenerateFog = document.getElementById('btn-generate-fog');
+        const btnGenerateRect = document.getElementById('btn-generate-rect');
         const timelineContainer = document.getElementById('timeline');
         const timelinePlaceholder = document.getElementById('timeline-placeholder');
         
@@ -379,7 +385,7 @@
         let playerWindow = null;
 
         let currentTokenZIndex = 100;
-        let currentFogZIndex = 10000; 
+        let currentRectZIndex = 10000; 
 
         // Pan and Zoom Variables
         let scale = 1;
@@ -395,7 +401,6 @@
         function addToTimeline(token) {
             if (timelinePlaceholder) timelinePlaceholder.style.display = 'none';
 
-            // Check if it's already in the timeline
             if (document.getElementById('tl-' + token.id)) return;
 
             const tlItem = document.createElement('div');
@@ -406,7 +411,6 @@
             const initial = token.querySelector('.token-initial').textContent;
             tlItem.textContent = initial;
 
-            // Hover effects link timeline to map token
             tlItem.addEventListener('mouseenter', () => {
                 const mapToken = document.getElementById(token.id);
                 if (mapToken) mapToken.classList.add('highlight-active');
@@ -417,7 +421,6 @@
                 if (mapToken) mapToken.classList.remove('highlight-active');
             });
 
-            // Right-click to remove from timeline manually
             tlItem.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 tlItem.remove();
@@ -473,374 +476,3 @@
                 }
 
                 workspace.addEventListener('mousedown', (e) => {
-                    isPanning = true;
-                    startPanX = e.clientX - panX;
-                    startPanY = e.clientY - panY;
-                });
-
-                window.addEventListener('mousemove', (e) => {
-                    if (!isPanning) return;
-                    panX = e.clientX - startPanX;
-                    panY = e.clientY - startPanY;
-                    updateTransform();
-                });
-
-                window.addEventListener('mouseup', () => { isPanning = false; });
-
-                workspace.addEventListener('wheel', (e) => {
-                    e.preventDefault();
-                    const zoomSensitivity = 0.001;
-                    const delta = -e.deltaY * zoomSensitivity;
-                    const newScale = Math.min(Math.max(0.1, scale * Math.exp(delta)), 5);
-
-                    const rect = workspace.getBoundingClientRect();
-                    const mouseX = e.clientX - rect.left;
-                    const mouseY = e.clientY - rect.top;
-
-                    panX = mouseX - (mouseX - panX) * (newScale / scale);
-                    panY = mouseY - (mouseY - panY) * (newScale / scale);
-                    
-                    scale = newScale;
-                    updateTransform();
-                }, { passive: false });
-            `;
-
-            const styles = document.getElementById('main-styles').innerHTML;
-            const playerHTML = `
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Player Screen</title>
-                    <style>
-                        ${styles}
-                        body { background-color: #11111b; }
-                        #controls { display: none !important; }
-                        #timeline { display: none !important; } /* Hide Timeline from Players */
-                        #workspace { width: 100vw; height: 100vh; cursor: grab !important; }
-                        #workspace:active { cursor: grabbing !important; }
-                        
-                        .dm-only { display: none !important; } 
-                        .hp-dm-only { display: none !important; }
-                    </style>
-                </head>
-                <body>
-                    <div id="workspace">
-                        <div id="map-wrapper">
-                            <img id="map-image" src="${mapImage.src}" style="${mapImage.style.cssText}" draggable="false">
-                            <div id="grid-overlay" style="${gridOverlay.style.cssText}"></div>
-                            <div id="token-layer">${tokenLayer.innerHTML}</div>
-                        </div>
-                    </div>
-                    <script>${playerScript}<\/script>
-                </body>
-                </html>
-            `;
-
-            playerWindow.document.open();
-            playerWindow.document.write(playerHTML);
-            playerWindow.document.close();
-
-            playerWindow.document.documentElement.style.setProperty(
-                '--grid-size', 
-                document.documentElement.style.getPropertyValue('--grid-size') || '50px'
-            );
-
-            playerStatus.textContent = "Live & Connected";
-            playerStatus.style.color = "#a6e3a1";
-
-            playerWindow.addEventListener('beforeunload', () => {
-                playerStatus.textContent = "Not Connected";
-                playerStatus.style.color = "#f38ba8";
-                playerWindow = null;
-            });
-        });
-
-        function syncToPlayer() {
-            if (playerWindow && !playerWindow.closed) {
-                const pDoc = playerWindow.document;
-                
-                pDoc.documentElement.style.setProperty('--grid-size', document.documentElement.style.getPropertyValue('--grid-size') || '50px');
-
-                const pGridOverlay = pDoc.getElementById('grid-overlay');
-                if (pGridOverlay) pGridOverlay.style.cssText = gridOverlay.style.cssText;
-
-                const pTokenLayer = pDoc.getElementById('token-layer');
-                if (pTokenLayer) {
-                    pTokenLayer.innerHTML = tokenLayer.innerHTML;
-                }
-            }
-        }
-
-
-        // ==========================================
-        // MAP & VIEWPORT (DM Side)
-        // ==========================================
-        mapUpload.addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    mapImage.src = event.target.result;
-                    scale = 1; panX = 0; panY = 0;
-                    updateTransform();
-                    
-                    if (playerWindow && !playerWindow.closed) {
-                        playerWindow.document.getElementById('map-image').src = event.target.result;
-                    }
-                }
-                reader.readAsDataURL(file);
-            }
-        });
-
-        function updateTransform() {
-            mapWrapper.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
-        }
-
-        workspace.addEventListener('mousedown', (e) => {
-            if (e.target.closest('#controls') || e.target.closest('#timeline') || e.target.closest('.board-element')) return;
-            isPanning = true;
-            startPanX = e.clientX - panX;
-            startPanY = e.clientY - panY;
-        });
-
-        window.addEventListener('mousemove', (e) => {
-            if (!isPanning) return;
-            panX = e.clientX - startPanX;
-            panY = e.clientY - startPanY;
-            updateTransform();
-        });
-
-        window.addEventListener('mouseup', () => { isPanning = false; });
-
-        workspace.addEventListener('wheel', (e) => {
-            if (e.target.closest('#controls') || e.target.closest('#timeline')) return;
-            e.preventDefault();
-
-            const zoomSensitivity = 0.001;
-            const delta = -e.deltaY * zoomSensitivity;
-            const newScale = Math.min(Math.max(0.1, scale * Math.exp(delta)), 5);
-
-            const rect = workspace.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            panX = mouseX - (mouseX - panX) * (newScale / scale);
-            panY = mouseY - (mouseY - panY) * (newScale / scale);
-            
-            scale = newScale;
-            updateTransform();
-        }, { passive: false });
-
-        // ==========================================
-        // GRID
-        // ==========================================
-        gridToggle.addEventListener('change', function() {
-            gridOverlay.style.display = this.checked ? 'block' : 'none';
-            syncToPlayer();
-        });
-
-        gridSizeInput.addEventListener('input', function() {
-            document.documentElement.style.setProperty('--grid-size', this.value + 'px');
-            updateElementSizes();
-            syncToPlayer();
-        });
-
-        function updateGridOffset() {
-            const x = gridOffsetXInput.value || 0;
-            const y = gridOffsetYInput.value || 0;
-            gridOverlay.style.backgroundPosition = `${x}px ${y}px`;
-            syncToPlayer();
-        }
-
-        gridOffsetXInput.addEventListener('input', updateGridOffset);
-        gridOffsetYInput.addEventListener('input', updateGridOffset);
-
-        // ==========================================
-        // CREATION LOGIC
-        // ==========================================
-        btnGenerateToken.addEventListener('click', createToken);
-        btnGenerateFog.addEventListener('click', createFog);
-
-        function getCenterSpawnPos() {
-            // Adjust Y slightly so it doesn't spawn exactly under the timeline
-            return {
-                x: (workspace.clientWidth / 2 - panX) / scale,
-                y: ((workspace.clientHeight / 2 + 30) - panY) / scale
-            };
-        }
-
-        function createToken() {
-            const initial = document.getElementById('token-initial').value;
-            const hp = document.getElementById('token-hp').value;
-            const sizeMultiplier = document.getElementById('token-size').value;
-            const color = document.getElementById('token-color').value;
-            const isDmOnly = document.getElementById('token-dm-only').checked;
-            const isHpDmOnly = document.getElementById('token-hp-dm-only').checked;
-
-            const token = document.createElement('div');
-            // Unique ID for Timeline Linking
-            token.id = 'token-' + Math.random().toString(36).substring(2, 9);
-            token.className = 'board-element token';
-            if (isDmOnly) token.classList.add('dm-only');
-            
-            token.style.backgroundColor = color;
-            token.dataset.type = 'token';
-            token.dataset.sizeScale = sizeMultiplier;
-            token.dataset.hp = hp; 
-            
-            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
-            token.style.width = (currentGridSize * sizeMultiplier) + 'px';
-            token.style.height = (currentGridSize * sizeMultiplier) + 'px';
-            
-            const pos = getCenterSpawnPos();
-            token.style.left = pos.x + 'px';
-            token.style.top = pos.y + 'px';
-            token.style.zIndex = currentTokenZIndex++;
-
-            const hpDisplay = hp == 0 ? 'none' : 'block';
-            const hpClass = isHpDmOnly ? 'token-hp hp-dm-only' : 'token-hp';
-
-            token.innerHTML = `
-                <span class="token-initial">${initial}</span>
-                <span class="${hpClass}" style="display: ${hpDisplay}">${hp} HP</span>
-            `;
-
-            makeDraggableAndInteractive(token);
-            tokenLayer.appendChild(token);
-            syncToPlayer();
-        }
-
-        function createFog() {
-            const wSquares = document.getElementById('fog-width').value;
-            const hSquares = document.getElementById('fog-height').value;
-
-            const fog = document.createElement('div');
-            fog.className = 'board-element fog-of-war';
-            fog.style.backgroundColor = '#000000';
-            fog.dataset.type = 'fog';
-            fog.dataset.wSquares = wSquares;
-            fog.dataset.hSquares = hSquares;
-
-            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
-            fog.style.width = (currentGridSize * wSquares) + 'px';
-            fog.style.height = (currentGridSize * hSquares) + 'px';
-
-            const pos = getCenterSpawnPos();
-            fog.style.left = pos.x + 'px';
-            fog.style.top = pos.y + 'px';
-            fog.style.zIndex = currentFogZIndex++; 
-
-            makeDraggableAndInteractive(fog);
-            tokenLayer.appendChild(fog);
-            syncToPlayer();
-        }
-
-        function updateElementSizes() {
-            const currentGridSize = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--grid-size') || 50);
-            
-            document.querySelectorAll('.token').forEach(token => {
-                const sizeScale = parseInt(token.dataset.sizeScale);
-                token.style.width = (currentGridSize * sizeScale) + 'px';
-                token.style.height = (currentGridSize * sizeScale) + 'px';
-            });
-
-            document.querySelectorAll('.fog-of-war').forEach(fog => {
-                const wScale = parseInt(fog.dataset.wSquares);
-                const hScale = parseInt(fog.dataset.hSquares);
-                fog.style.width = (currentGridSize * wScale) + 'px';
-                fog.style.height = (currentGridSize * hScale) + 'px';
-            });
-        }
-
-        // ==========================================
-        // INTERACTION (DRAG, DELETE, EDIT)
-        // ==========================================
-        function makeDraggableAndInteractive(element) {
-            let isDragging = false;
-            let startX, startY, initialLeft, initialTop;
-
-            element.addEventListener('mousedown', dragStart);
-
-            element.addEventListener('contextmenu', (e) => {
-                e.preventDefault(); 
-                
-                // Ctrl + Right Click behavior
-                if (e.ctrlKey && element.dataset.type === 'token') {
-                    addToTimeline(element);
-                } else {
-                    // Normal Right Click = Delete
-                    element.remove();
-                    if (element.id) {
-                        removeFromTimeline(element.id);
-                    }
-                    syncToPlayer();
-                }
-            });
-
-            if (element.dataset.type === 'token') {
-                element.addEventListener('dblclick', (e) => {
-                    e.stopPropagation(); 
-                    let currentHp = element.dataset.hp;
-                    let newHp = prompt("Enter new HP (0 to hide):", currentHp);
-                    
-                    if (newHp !== null && !isNaN(newHp) && newHp.trim() !== '') {
-                        element.dataset.hp = newHp;
-                        let hpSpan = element.querySelector('.token-hp');
-                        hpSpan.textContent = `${newHp} HP`;
-                        hpSpan.style.display = newHp == 0 ? 'none' : 'block';
-                        syncToPlayer();
-                    }
-                });
-            }
-
-            function dragStart(e) {
-                if (e.button !== 0) return; 
-                e.stopPropagation(); 
-
-                if (e.shiftKey) {
-                    if (element.dataset.type === 'token') {
-                        element.classList.toggle('dm-only');
-                        syncToPlayer();
-                    }
-                    return; 
-                }
-
-                isDragging = true;
-                
-                if (element.dataset.type === 'fog') {
-                    element.style.zIndex = currentFogZIndex++;
-                } else {
-                    element.style.zIndex = currentTokenZIndex++;
-                }
-                
-                startX = e.clientX;
-                startY = e.clientY;
-                initialLeft = element.offsetLeft;
-                initialTop = element.offsetTop;
-
-                document.addEventListener('mousemove', drag);
-                document.addEventListener('mouseup', dragEnd);
-            }
-
-            function drag(e) {
-                if (!isDragging) return;
-                e.preventDefault();
-
-                const dx = (e.clientX - startX) / scale;
-                const dy = (e.clientY - startY) / scale;
-
-                element.style.left = (initialLeft + dx) + 'px';
-                element.style.top = (initialTop + dy) + 'px';
-                
-                syncToPlayer(); 
-            }
-
-            function dragEnd() {
-                isDragging = false;
-                document.removeEventListener('mousemove', drag);
-                document.removeEventListener('mouseup', dragEnd);
-            }
-        }
-    </script>
-</body>
-</html>
